@@ -1,0 +1,22 @@
+# Секреты
+.env
+config.local.py
+
+# Базы данных (генерируются скриптами seed)
+*.db
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Редакторы / ОС
+*.save
+*.save.*
+*.swp
+.DS_Store
+.idea/
+.vscode/

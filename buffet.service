@@ -1,0 +1,16 @@
+[Unit]
+Description=Buffet Telegram bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=radomir
+WorkingDirectory=/home/radomir/Work/buffet
+# Запуск через интерпретатор из виртуального окружения
+ExecStart=/home/radomir/Work/buffet/.venv/bin/python /home/radomir/Work/buffet/bot.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
