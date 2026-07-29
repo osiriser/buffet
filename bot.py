@@ -7,6 +7,7 @@ from aiogram.dispatcher.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, Message, LabeledPrice
 from config import BOT_TOKEN, PAYMENT_TOKEN, ADMIN_ID
 from aiogram.utils import markdown, executor
+from aiogram.utils.exceptions import TelegramAPIError
 from functools import partial
 from aiogram.types.message import ContentType
 from aiogram.types.pre_checkout_query import PreCheckoutQuery
@@ -376,24 +377,31 @@ async def show_cart(message: types.Message, state: FSMContext):
             print(f"Total Amount: {total_amount}")
             await message.reply(f"Ваша корзина:\n{cart_items}\n\nСумма: {total_amount} руб.")
 
-            # Use the total amount in the send_invoice method
-            await bot.send_invoice(
-                chat_id=message.from_user.id,
-                title='Оплата корзины',
-                description='Оплата товаров из вашей корзины',
-                payload='pay_cart',
-                provider_token=PAYMENT_TOKEN,
-                currency='rub',
-                prices=[
-                    LabeledPrice(
-                        label='Total Amount',
-                        amount=int(total_amount)*100  # Ensure it's an integer
-                    )
-                ],
-                start_parameter='',
-                disable_notification=False,
-                allow_sending_without_reply=True
-            )
+            try:
+                # Use the total amount in the send_invoice method
+                await bot.send_invoice(
+                    chat_id=message.from_user.id,
+                    title='Оплата корзины',
+                    description='Оплата товаров из вашей корзины',
+                    payload='pay_cart',
+                    provider_token=PAYMENT_TOKEN,
+                    currency='rub',
+                    prices=[
+                        LabeledPrice(
+                            label='Total Amount',
+                            amount=int(total_amount)*100  # Ensure it's an integer
+                        )
+                    ],
+                    start_parameter='',
+                    disable_notification=False,
+                    allow_sending_without_reply=True
+                )
+            except TelegramAPIError as e:
+                # Онлайн-оплата не настроена — оформляем заказ в демо-режиме.
+                logging.warning(f"Оплата корзины недоступна ({e}); демо-оформление заказа.")
+                await message.answer(
+                    "💳 Онлайн-оплата пока не подключена — оформляю заказ в демо-режиме.")
+                await process_cart_payment(message, 'pay_cart', state)
         else:
             await message.reply("Ваша корзина пустая!")
 
@@ -475,15 +483,40 @@ async def rm_add_cart_keyboard(state, product_id):
 
 
 
+async def send_product_card(chat_id, product, markup):
+    """Демо-карточка товара — используется, когда онлайн-оплата не настроена."""
+    caption = (
+        f"<b>{product[1]}</b>\n\n"
+        f"{product[2]}\n\n"
+        f"💰 Цена: {int(product[3]) // 100} ₽\n"
+        f"📦 В наличии: {product[5]} шт.\n\n"
+        f"🛒 Добавьте товар в корзину, затем оформите заказ командой /cart."
+    )
+    try:
+        await bot.send_photo(chat_id, photo=product[4], caption=caption,
+                             parse_mode="HTML", reply_markup=markup)
+    except TelegramAPIError:
+        # Если фото не загрузилось — отправляем текстом
+        await bot.send_message(chat_id, caption, parse_mode="HTML", reply_markup=markup)
+
+
 @dp.callback_query_handler(lambda c: c.data.isdigit())
 async def process_product_callback(callback_query: types.CallbackQuery):
     product_id = int(callback_query.data)
     cursor.execute('SELECT * FROM products WHERE id = ?', (product_id,))
     product = cursor.fetchone()
+
+    if product is None:
+        await callback_query.answer("Товар не найден")
+        return
+    if product[5] <= 0:
+        await callback_query.answer("Извините, товара нет в наличии.")
+        return
+
     markup_add_rm = await rm_add_cart_keyboard(dp.current_state(), product_id)
-    #markup_add = await get_add_to_cart_keyboard(product_id)
-    #markup_rm = await rm_from_cart(dp.current_state(), product_id)
-    if product[5] > 0:
+    await callback_query.answer()  # убираем «часики» на кнопке
+
+    try:
         await bot.send_invoice(
             chat_id=callback_query.from_user.id,
             title=product[1],
@@ -515,14 +548,13 @@ async def process_product_callback(callback_query: types.CallbackQuery):
             reply_to_message_id=None,
             allow_sending_without_reply=True,
         )
-
         await bot.send_message(chat_id=callback_query.from_user.id, text=f'Количество товара: {product[5]}',
                                reply_markup=markup_add_rm)
-
-
-
-    else:
-        await callback_query.answer("Извините, товара нет в наличии.")
+    except TelegramAPIError as e:
+        # Платёжный провайдер не настроен/недействителен — работаем в демо-режиме:
+        # показываем карточку товара с кнопкой «Добавить в корзину».
+        logging.warning(f"send_invoice недоступен ({e}); показываю карточку товара.")
+        await send_product_card(callback_query.from_user.id, product, markup_add_rm)
 
 
 @dp.pre_checkout_query_handler()
@@ -646,6 +678,10 @@ async def process_cart_payment(message: types.Message, product_ids, state: FSMCo
     user_id = int(message.chat.id)
     cursor_users.execute('SELECT * FROM users WHERE user_id = ?', (user_id,))
     person_id = cursor_users.fetchone()
+
+    if person_id is None:
+        await bot.send_message(user_id, "Сначала пройдите регистрацию командой /start.")
+        return
 
     # Вычисляем общую стоимость корзины
     total_price = 0
