@@ -189,11 +189,20 @@ async def start(message: types.Message):
 
 @dp.message_handler(commands=['help'])
 async def help(message: types.Message):
-    await message.reply('/start - Регистрация в боте\n '
-                        '/menu - Меню товаров\n'
-                        '/cart - Моя корзина\n'
-                        '/help - Все команды бота\n'
-                        '/panel - Панель навигации')
+    await message.answer(
+        "ℹ️ <b>Помощь по боту «Буфет»</b>\n\n"
+        "Как сделать заказ:\n"
+        "1️⃣ Откройте меню — /menu\n"
+        "2️⃣ Выберите блюдо и добавьте его в корзину\n"
+        "3️⃣ Перейдите в корзину — /cart — и оплатите заказ\n"
+        "4️⃣ Получите номер заказа и заберите его в буфете\n\n"
+        "<b>Команды:</b>\n"
+        "🚀 /start — регистрация и начало работы\n"
+        "🍽 /menu — меню буфета\n"
+        "🛒 /cart — моя корзина и оплата\n"
+        "👤 /profile — мои данные\n"
+        "ℹ️ /help — эта справка",
+        parse_mode="HTML")
 
 
 
@@ -233,11 +242,22 @@ async def cmd_start(message: types.Message):
 
     if info.fetchone() is None:
         await message.answer(
-            "Добро пожаловать! Пожалуйста, укажите свои данные для регистрации.\n\nВведите вашу фамилию:")
+            "👋 Добро пожаловать в <b>Буфет</b> — ваш магазин вкусной еды прямо в Telegram!\n\n"
+            "Здесь можно выбрать блюда из меню, добавить их в корзину и оплатить заказ "
+            "не выходя из чата. После оплаты вам придёт номер заказа для получения.\n\n"
+            "Для начала пройдём быструю регистрацию.\n"
+            "✍️ Введите вашу <b>фамилию</b>:",
+            parse_mode="HTML")
         await RegisterState.first_name.set()
     else:
         await message.answer(
-            "Добро пожаловать! Вы уже зарегистрированы. Для того узнать ваши данные нажмите команду /profile")
+            "👋 С возвращением в <b>Буфет</b>!\n\n"
+            "🍽 /menu — выбрать блюда\n"
+            "🛒 /cart — корзина и оплата\n"
+            "👤 /profile — ваши данные\n"
+            "ℹ️ /help — все команды\n\n"
+            "Приятного аппетита!",
+            parse_mode="HTML")
 
 
 
@@ -743,7 +763,37 @@ async def process_individual_product_payment(message: types.Message, product_id,
 
 
 
+async def on_startup(dispatcher):
+    """Регистрируем меню команд и тексты бота при запуске.
+
+    Благодаря этому список команд (кнопка «Меню» в Telegram), описание и
+    about-текст подтягиваются автоматически — не нужно настраивать вручную
+    в @BotFather.
+    """
+    commands = [
+        types.BotCommand("start", "🚀 Регистрация и начало работы"),
+        types.BotCommand("menu", "🍽 Меню буфета"),
+        types.BotCommand("cart", "🛒 Моя корзина и оплата"),
+        types.BotCommand("profile", "👤 Мои данные"),
+        types.BotCommand("help", "ℹ️ Помощь по боту"),
+    ]
+    await bot.set_my_commands(commands)
+
+    # Описание/about поддерживаются не во всех версиях API — не критично.
+    description = (
+        "Буфет — магазин вкусной еды прямо в Telegram. Выбирайте блюда из меню, "
+        "добавляйте в корзину и оплачивайте заказ не выходя из чата. "
+        "Нажмите «Начать», чтобы сделать первый заказ!"
+    )
+    short_description = "Магазин буфета в Telegram: меню, корзина и оплата в чате."
+    try:
+        await bot.set_my_description(description)
+        await bot.set_my_short_description(short_description)
+    except Exception as e:
+        logging.warning(f"Не удалось установить описание бота: {e}")
+
+
 if __name__ == "__main__":
     # В aiogram 2.x поллинг запускается через executor, а не asyncio.run.
-    executor.start_polling(dp, skip_updates=True)
+    executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
 
